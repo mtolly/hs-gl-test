@@ -49,20 +49,43 @@ checkGL = do
 
 loadShaders :: FilePath -> FilePath -> IO GLuint
 loadShaders vertfp fragfp = do
+
   vertShaderID <- glCreateShader GL_VERTEX_SHADER
   fragShaderID <- glCreateShader GL_FRAGMENT_SHADER
+
   vert <- readFile vertfp
   frag <- readFile fragfp
-  withCString vert $ \vp -> with vp $ \vpp -> do
-    glShaderSource vertShaderID 1 vpp nullPtr
+
+  let check
+        :: (GLuint -> GLenum -> Ptr GLint -> IO ())
+        -> (GLuint -> GLsizei -> Ptr GLsizei -> Ptr GLchar -> IO ())
+        -> GLuint
+        -> IO ()
+      check lenFn logFn checkID = do
+        len <- alloca $ \p -> do
+          lenFn checkID GL_INFO_LOG_LENGTH p
+          peek p
+        when (len > 0) $ allocaArray0 (fromIntegral len) $ \p -> do
+          logFn checkID (fromIntegral len) nullPtr p
+          peekCString p >>= putStrLn
+
+  withCString vert $ \p -> withArrayLen [p] $ \len pp -> do
+    glShaderSource vertShaderID (fromIntegral len) pp nullPtr
     glCompileShader vertShaderID
-  withCString frag $ \fp -> with fp $ \fpp -> do
-    glShaderSource fragShaderID 1 fpp nullPtr
+  putStrLn "Checking vertex shader..."
+  check glGetShaderiv glGetShaderInfoLog vertShaderID
+  withCString frag $ \p -> withArrayLen [p] $ \len pp -> do
+    glShaderSource fragShaderID (fromIntegral len) pp nullPtr
     glCompileShader fragShaderID
+  putStrLn "Checking fragment shader..."
+  check glGetShaderiv glGetShaderInfoLog fragShaderID
+
   progID <- glCreateProgram
   glAttachShader progID vertShaderID
   glAttachShader progID fragShaderID
   glLinkProgram progID
+  putStrLn "Checking program..."
+  check glGetProgramiv glGetProgramInfoLog progID
   glDeleteShader vertShaderID
   glDeleteShader fragShaderID
   return progID
