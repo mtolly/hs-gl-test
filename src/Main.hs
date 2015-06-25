@@ -47,6 +47,9 @@ checkGL = do
     then return ()
     else error $ "OpenGL error: " ++ show err
 
+fill :: (Storable a) => (Ptr a -> IO ()) -> IO a
+fill f = alloca $ \p -> f p >> peek p
+
 loadShaders :: FilePath -> FilePath -> IO GLuint
 loadShaders vertfp fragfp = do
 
@@ -62,9 +65,7 @@ loadShaders vertfp fragfp = do
         -> GLuint
         -> IO ()
       check lenFn logFn checkID = do
-        len <- alloca $ \p -> do
-          lenFn checkID GL_INFO_LOG_LENGTH p
-          peek p
+        len <- fill $ lenFn checkID GL_INFO_LOG_LENGTH
         when (len > 0) $ allocaArray0 (fromIntegral len) $ \p -> do
           logFn checkID (fromIntegral len) nullPtr p
           peekCString p >>= putStrLn
@@ -74,6 +75,7 @@ loadShaders vertfp fragfp = do
     glCompileShader vertShaderID
   putStrLn "Checking vertex shader..."
   check glGetShaderiv glGetShaderInfoLog vertShaderID
+
   withCString frag $ \p -> withArrayLen [p] $ \len pp -> do
     glShaderSource fragShaderID (fromIntegral len) pp nullPtr
     glCompileShader fragShaderID
@@ -86,6 +88,7 @@ loadShaders vertfp fragfp = do
   glLinkProgram progID
   putStrLn "Checking program..."
   check glGetProgramiv glGetProgramInfoLog progID
+
   glDeleteShader vertShaderID
   glDeleteShader fragShaderID
   return progID
@@ -102,15 +105,13 @@ main = withSDL [SDL.SDL_INIT_VIDEO] $ do
       640
       480
       (SDL.SDL_WINDOW_OPENGL .|. SDL.SDL_WINDOW_SHOWN)
-  ctx <- notNull $ SDL.glCreateContext window
+  _ctx <- notNull $ SDL.glCreateContext window
   zero $ SDL.glSetSwapInterval 1
 
   -- dark blue background
   glClearColor 0 0 0.4 0
 
-  vertexArrayID <- alloca $ \p -> do
-    glGenVertexArrays 1 p
-    peek p
+  vertexArrayID <- fill $ glGenVertexArrays 1
   glBindVertexArray vertexArrayID
 
   -- create and compile program from the shaders
@@ -118,45 +119,43 @@ main = withSDL [SDL.SDL_INIT_VIDEO] $ do
 
   let bufData = [-1, -1, 0, 1, -1, 0, 0, 1, 0] :: [GLfloat]
 
-  vertexBuffer <- alloca $ \p -> do
-    glGenBuffers 1 p
-    peek p
+  vertexBuffer <- fill $ glGenBuffers 1
   glBindBuffer GL_ARRAY_BUFFER vertexBuffer
   withArrayLen bufData $ \len p -> do
     let size = fromIntegral $ len * sizeOf (head bufData)
     glBufferData GL_ARRAY_BUFFER size (castPtr p) GL_STATIC_DRAW
 
-    -- the game loop
-    fix $ \loop -> do
-      -- clear the screen
-      glClear GL_COLOR_BUFFER_BIT
+  -- the game loop
+  fix $ \loop -> do
+    -- clear the screen
+    glClear GL_COLOR_BUFFER_BIT
 
-      -- use our shader
-      glUseProgram programID
+    -- use our shader
+    glUseProgram programID
 
-      -- 1rst attribute buffer : vertices
-      glEnableVertexAttribArray 0
-      glBindBuffer GL_ARRAY_BUFFER vertexBuffer
-      glVertexAttribPointer
-        0
-        3
-        GL_FLOAT
-        GL_FALSE
-        0
-        nullPtr
+    -- 1rst attribute buffer : vertices
+    glEnableVertexAttribArray 0
+    glBindBuffer GL_ARRAY_BUFFER vertexBuffer
+    glVertexAttribPointer
+      0
+      3
+      GL_FLOAT
+      GL_FALSE
+      0
+      nullPtr
 
-      -- draw the triangle!
-      glDrawArrays GL_TRIANGLES 0 3
+    -- draw the triangle!
+    glDrawArrays GL_TRIANGLES 0 3
 
-      glDisableVertexAttribArray 0
+    glDisableVertexAttribArray 0
 
-      -- swap buffers
-      SDL.glSwapWindow window
+    -- swap buffers
+    SDL.glSwapWindow window
 
-      events <- untilNothing pollEvent
-      unless (any isQuit events) $ do
-        threadDelay 5000
-        loop
+    events <- untilNothing pollEvent
+    unless (any isQuit events) $ do
+      threadDelay 5000
+      loop
 
 isQuit :: SDL.Event -> Bool
 isQuit SDL.QuitEvent{} = True
