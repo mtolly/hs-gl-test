@@ -50,6 +50,9 @@ checkGL = do
 fill :: (Storable a) => (Ptr a -> IO ()) -> IO a
 fill f = alloca $ \p -> f p >> peek p
 
+fillMany :: (Storable a, Num b) => Int -> (b -> Ptr a -> IO ()) -> IO [a]
+fillMany i f = allocaArray i $ \p -> f (fromIntegral i) p >> peekArray i p
+
 loadShaders :: FilePath -> FilePath -> IO GLuint
 loadShaders vertfp fragfp = do
 
